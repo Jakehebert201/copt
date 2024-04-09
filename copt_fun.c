@@ -1,5 +1,7 @@
 #include "copt_fun.h"
 #include "stdio.h"
+#include "threads.h"
+#include "stdlib.h"
 
 /******************************************************************************
  * Usage: copt OP N LOOP
@@ -262,7 +264,12 @@ void matrix_multiply_opt(struct fn_args *args)
   // 1. Added n offset variable to reduce redundant calculations (1.2x speedup)
   // 2. Moved vars to registers (1.5x speedup)
   // 3. Added joffset variable to reduce redundant calculations (1.8x speedup) Need to get below 3033 ms, currently at 7783 ms
-  // 4.
+  // 4. Loop Tiling -- yeah that did less than nothing, did not implement!
+  // 5. Multithreading! -- Also a terrible idea, did not improve performance!
+  // 6.
+
+  /* Pre Multithreaded code */
+
   register int i, j, k, n, noffset, joffset;
   register int *mat1, *mat2, *res;
 
