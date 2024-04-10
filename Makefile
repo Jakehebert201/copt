@@ -48,7 +48,7 @@ test_fact: copt
 	./$(COPT_EXE) 2 20 200000000; echo ""
 
 test_mat_mult: copt
-	./$(COPT_EXE) 3 800 1; echo ""
+	./$(COPT_EXE) 3 1600 1; echo ""
 
 clean:
 	-rm *.o $(COPT_EXE) $(COPT_EXE2)

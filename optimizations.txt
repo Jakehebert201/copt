@@ -1,0 +1,10 @@
+Test 02
+UNOPTIMIZED(ms):        1133.0
+UNOPTIMIZED(ms):        1800.0
+UNOPTIMIZED(ms):        1833.0
+UNOPTIMIZED(ms):        3016.0
+Test
+OPTIMIZED(ms):          2150.0
+OPTIMIZED(ms):          3250.0
+OPTIMIZED(ms):          1034.0
+OPTIMIZED(ms):          7667.0

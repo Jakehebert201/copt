@@ -2,6 +2,7 @@
 #include "stdio.h"
 #include "threads.h"
 #include "stdlib.h"
+#include <immintrin.h>
 
 /******************************************************************************
  * Usage: copt OP N LOOP
@@ -78,36 +79,62 @@ void matrix_initialize_opt(struct fn_args *args)
   // 11 map loop control to register
   // 12. Changed i_offset from i*n to i+=n: 4.7x to 5.7x
   // 13.
-  int i, j, n;
+
+  register int i, j, n;
   register int *mat1, *mat2;
-  register int i_offset = 0, i_sum, j_offset, j_sum;
+  register int i_offset = 0;
 
   n = args->n;
   mat1 = args->mem1;
   mat2 = args->mem2;
 
+  // Prepare vectors for initialization
+  // Note: This assumes that 'n' is divisible by 8, as each _mm256_set1_epi32 call fills 8 integers.
   for (i = 0; i < n; i++)
   {
-    // i_offset = i*n;
-    i_sum = i + 1;
-    for (j = 0; j < n; j += 5)
-    {
-      j_offset = i_offset + j;
-      mat1[j_offset] = i;
-      mat1[j_offset + 1] = i;
-      mat1[j_offset + 2] = i;
-      mat1[j_offset + 3] = i;
-      mat1[j_offset + 4] = i;
-      mat2[i_offset + j] = i_sum;
-      mat2[j_offset + 1] = i_sum;
-      mat2[j_offset + 2] = i_sum;
-      mat2[j_offset + 3] = i_sum;
-      mat2[j_offset + 4] = i_sum;
+    __m256i vec_i = _mm256_set1_epi32(i);         // Vector with all elements set to 'i'
+    __m256i vec_i_sum = _mm256_set1_epi32(i + 1); // Vector with all elements set to 'i + 1'
+
+    for (j = 0; j < n; j += 8)
+    { // Process 8 elements per iteration
+      // Store the vectors into mat1 and mat2
+      _mm256_storeu_si256((__m256i *)&mat1[i_offset + j], vec_i);
+      _mm256_storeu_si256((__m256i *)&mat2[i_offset + j], vec_i_sum);
     }
     i_offset += n;
   }
 }
+/*
+int i, j, n;
+register int *mat1, *mat2;
+register int i_offset = 0, i_sum, j_offset, j_sum;
 
+n = args->n;
+mat1 = args->mem1;
+mat2 = args->mem2;
+
+for (i = 0; i < n; i++)
+{
+  // i_offset = i*n;
+  i_sum = i + 1;
+  for (j = 0; j < n; j += 5)
+  {
+    j_offset = i_offset + j;
+    mat1[j_offset] = i;
+    mat1[j_offset + 1] = i;
+    mat1[j_offset + 2] = i;
+    mat1[j_offset + 3] = i;
+    mat1[j_offset + 4] = i;
+    mat2[i_offset + j] = i_sum;
+    mat2[j_offset + 1] = i_sum;
+    mat2[j_offset + 2] = i_sum;
+    mat2[j_offset + 3] = i_sum;
+    mat2[j_offset + 4] = i_sum;
+  }
+  i_offset += n;
+}
+}
+*/
 void array_initialize_unopt(struct fn_args *args)
 {
   int i, mod, n, *arr;
