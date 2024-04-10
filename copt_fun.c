@@ -3,6 +3,8 @@
 #include "threads.h"
 #include "stdlib.h"
 #include <immintrin.h>
+#include <stdint.h>
+#include <pthread.h>
 
 /******************************************************************************
  * Usage: copt OP N LOOP
@@ -78,7 +80,7 @@ void matrix_initialize_opt(struct fn_args *args)
   // 10. Map mat 1 and mat 2 to register : 5.7x
   // 11 map loop control to register
   // 12. Changed i_offset from i*n to i+=n: 4.7x to 5.7x
-  // 13.
+  // 13. Moved to AVX2 SIMD instructions -> 15.3x speedup
 
   register int i, j, n;
   register int *mat1, *mat2;
@@ -147,6 +149,31 @@ void array_initialize_unopt(struct fn_args *args)
     arr[i] = i * mod * Z;
   }
 }
+struct thread_data
+{
+  int32_t *arr, modZ;
+  int startIdx, endIdx;
+};
+
+void *thread_func(void *arg)
+{
+  struct thread_data *data = (struct thread_data *)arg;
+  int32_t *arr = data->arr;
+  int startIdx = data->startIdx;
+  int endIdx = data->endIdx;
+  __m256i vec_modZ = _mm256_set1_epi32(data->modZ);
+
+  for (int i = startIdx; i < endIdx; i += 8)
+  {
+    __m256i vec_i = _mm256_setr_epi32(i, i + 1, i + 2, i + 3, i + 4, i + 5, i + 6, i + 7);
+    __m256i vec_result = _mm256_mullo_epi32(vec_i, vec_modZ);
+    _mm256_storeu_si256((__m256i *)(arr + i), vec_result);
+  }
+
+  return NULL;
+}
+
+#define NUM_THREADS 2
 
 void array_initialize_opt(struct fn_args *args)
 {
@@ -161,32 +188,34 @@ void array_initialize_opt(struct fn_args *args)
   // 8. Moved to 6 place loop unroll (4.9x, half the time :/ ) - 3033/2050 - just 1.5x to go!
   // 9. Since X,Y,Z are constants which result in 64, removed the mod calculation (4.9) - This wasn't in the loop, so it wasn't significant
   // 10. unrolled loop to 12 places (2.8) - moving to args : 1 300,000 20,000 to better reflect test2 in makefile
+  // 11. SIMD Instructions!!!
+  // 12. Multithreading!! - using make test_arr_init scared me because it didnt have a large enough array to remove overhead, but using make test gives a different story - 5.3x speedup- BEATING 02!!!!
+  // 13. Playing around with NUM_THREADS allowed me to determine that 2 threads is optimal in this specific usecase- 16.3x speedup!
+  pthread_t threads[NUM_THREADS];
+  struct thread_data thread_args[NUM_THREADS];
+  int n = args->n;
+  int32_t *arr = args->mem1;
+  const int32_t modZ = (X % Y) * Z;
 
-  register int i, n, *arr, modz = 64, imult;
-
-  n = args->n;
-  arr = args->mem1;
-  // mod = X % Y;
-  // modz = mod * Z; x = 500, y = 12, z = 8
-  // modz = X % Y * Z; 8*8
-
-  for (i = 0; i < n; i += 12)
+  int chunkSize = n / NUM_THREADS;
+  for (int i = 0; i < NUM_THREADS; i++)
   {
-    imult = i * modz;
-    arr[i] = imult;
-    arr[i + 1] = imult + modz;
-    arr[i + 2] = imult + 2 * modz;
-    arr[i + 3] = imult + 3 * modz;
-    arr[i + 4] = imult + 4 * modz;
-    arr[i + 5] = imult + 5 * modz;
-    arr[i + 6] = imult + 6 * modz;
-    arr[i + 7] = imult + 7 * modz;
-    arr[i + 8] = imult + 8 * modz;
-    arr[i + 9] = imult + 9 * modz;
-    arr[i + 10] = imult + 10 * modz;
-    arr[i + 11] = imult + 11 * modz;
+    thread_args[i].arr = arr;
+    thread_args[i].startIdx = i * chunkSize;
+    thread_args[i].endIdx = (i + 1) * chunkSize;
+    thread_args[i].modZ = modZ;
+    if (i == NUM_THREADS - 1)
+      thread_args[i].endIdx = n; // Ensure the last thread covers the remainder
+
+    pthread_create(&threads[i], NULL, thread_func, (void *)&thread_args[i]);
+  }
+
+  for (int i = 0; i < NUM_THREADS; i++)
+  {
+    pthread_join(threads[i], NULL);
   }
 }
+
 unsigned long long factorial_unopt_helper(unsigned long long n)
 {
   if (n == 0ull)
@@ -200,12 +229,42 @@ void factorial_unopt(struct fn_args *args)
   // printf("Unopt: %llu\n", args->fac);
 }
 
+// Leaving this here for the funnies
+unsigned long long factorialTable[] =
+    {1,                       // 0
+     1,                       // 1
+     2,                       // 2
+     6,                       // 3
+     24,                      // 4
+     120,                     // 5
+     720,                     // 6
+     5040,                    // 7
+     40320,                   // 8
+     362880,                  // 9
+     3628800,                 // 10
+     39916800,                // 11
+     479001600,               // 12
+     6227020800ULL,           // 13
+     87178291200ULL,          // 14
+     1307674368000ULL,        // 15
+     20922789888000ULL,       // 16
+     355687428096000ULL,      // 17
+     6402373705728000ULL,     // 18
+     121645100408832000ULL,   // 19
+     2432902008176640000ULL}; // 20
+
 unsigned long long factorial_opt_helper(unsigned long long n)
 {
   // 1. Not recursive, allows for easier optimization, 2.4x
   // 2. Put the whole thing in a switch statement, if you dont calculate it you dont need to worry about overhead :) (13.1x)
+  // 3. Using a global array and using n as an indexer for it makes this significantly faster! (well, not as much for me :/ ) (14.6x)
 
   // this is gonna be ugly but I think it'd be funny
+  return factorialTable[n];
+
+  // original switch statement code
+
+  // 20! is almost 2^64, so it's the max given ull datatype, so if n > 20, it overflows!
   if (n == 0 || n == 1)
   {
     return 1;

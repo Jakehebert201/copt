@@ -1,6 +1,6 @@
 CC = gcc
-CFLAGS = -O0
-CFLAGS2 = -O2
+CFLAGS = -O0 -mavx2 -mfma
+CFLAGS2 = -O2 -mavx2 -mfma
 COPT_EXE = copt
 COPT_EXE2 = copt2
 COPT_PROF = coptprof
@@ -12,11 +12,9 @@ copt: copt_fun.o copt.o
 copt2: copt_fun2.o copt.o
 	$(CC) $(CFLAGS2) copt_fun2.o copt.o -o $(COPT_EXE2)
 
-# Ensure this block is indented with a tab
 copt.o: copt.c copt.h
 	$(CC) $(CFLAGS) -c copt.c -o copt.o
 
-# Ensure this block is indented with a tab
 copt_fun.o: copt_fun.c copt_fun.h
 	$(CC) $(CFLAGS) -c copt_fun.c -o copt_fun.o
 
@@ -53,7 +51,6 @@ test_mat_mult: copt
 clean:
 	-rm *.o $(COPT_EXE) $(COPT_EXE2)
 
-# Added for profiling with gprof, ensure tab indentation here
 coptprof: copt_fun.o copt.o
 	$(CC) $(CFLAGS) $(PROF_FLAGS) copt_fun.o copt.o -o $(COPT_PROF)
 
