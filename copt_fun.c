@@ -31,8 +31,8 @@
  ******************************************************************************/
 
 /******************************************************************************
- * Name:        Jacob Hebert 
- * Collaboration: Some help from GPT and Stack Overflow 
+ * Name:        Jacob Hebert
+ * Collaboration: Some help from GPT and Stack Overflow
  ******************************************************************************/
 
 int check(int x, int y)
@@ -259,7 +259,10 @@ unsigned long long factorial_opt_helper(unsigned long long n)
   // 3. Using a global array and using n as an indexer for it makes this significantly faster! (well, not as much for me :/ ) (14.6x)
 
   // this is gonna be ugly but I think it'd be funny
-  if(n > 20||n < 0){ return 0;}
+  if (n > 20 || n < 0)
+  {
+    return 0;
+  }
   return factorialTable[n];
 
   // original switch statement code
