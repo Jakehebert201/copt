@@ -545,7 +545,7 @@ void matrix_multiply_opt(struct fn_args *args)
     }
   }
 
-  free(transposed_mat2); // Don't forget to free the allocated memory
+  free(transposed_mat2);
 }
 */
   register int n = args->n;
