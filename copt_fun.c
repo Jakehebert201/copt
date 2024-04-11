@@ -351,9 +351,9 @@ void matrix_multiply_unopt(struct fn_args *args)
 // Transposes input matrix in order to make the below algorithm even faster
 void transpose_matrix(int *src, int *dst, int n)
 {
-  for (int i = 0; i < n; ++i)
+  for (register int i = 0; i < n; ++i)
   {
-    for (int j = 0; j < n; ++j)
+    for (register int j = 0; j < n; ++j)
     {
       dst[j * n + i] = src[i * n + j];
     }
@@ -361,7 +361,7 @@ void transpose_matrix(int *src, int *dst, int n)
 }
 
 #define TILE_SIZE 32
-#define THREAD_COUNT 2
+#define THREAD_COUNT 8
 typedef struct
 {
   int startRow;
@@ -377,7 +377,7 @@ void mat_thread_func(void *arg)
   ThreadData *data = (ThreadData *)arg;
   int startRow = data->startRow;
   int endRow = data->endRow;
-  int n = data->n;
+  register int n = data->n;
   int *mat1 = data->mat1;
   int *transposed_mat2 = data->transposed_mat2;
   int *res = data->res;
@@ -390,10 +390,10 @@ void mat_thread_func(void *arg)
       {
         for (int ii = i; ii < i + TILE_SIZE && ii < endRow; ++ii)
         {
-          for (int jj = j; jj < j + TILE_SIZE; jj += 8)
+          for (register int jj = j; jj < j + TILE_SIZE; jj += 8)
           {
             __m256i temp = _mm256_loadu_si256((__m256i *)&res[ii * n + jj]);
-            for (int kk = k; kk < k + TILE_SIZE; ++kk)
+            for (register int kk = k; kk < k + TILE_SIZE; ++kk)
             {
               __m256i mat1_vec = _mm256_set1_epi32(mat1[ii * n + kk]);
               __m256i mat2_vec = _mm256_loadu_si256((__m256i *)&transposed_mat2[jj * n + kk]);
@@ -416,7 +416,7 @@ void matrix_multiply_opt(struct fn_args *args)
   // 5. Moved to AVX2 256-bit vectorization - 4.3x
   // 6. Transposed mat2 to make the multiplication horizontal by horizontal - 4.3...?
   // 7. Moved some loop control variables to registers - 4.5
-  // 8. Multithreading - variable performance
+  // 8. Multithreading - variable performance- 4.5x
 
   /* Pre tiled code
 
@@ -548,7 +548,7 @@ void matrix_multiply_opt(struct fn_args *args)
   free(transposed_mat2); // Don't forget to free the allocated memory
 }
 */
-  int n = args->n;
+  register int n = args->n;
   int *mat1 = args->mem1;
   int *transposed_mat2 = (int *)malloc(n * n * sizeof(int));
   int *res = args->mem3;
@@ -558,7 +558,7 @@ void matrix_multiply_opt(struct fn_args *args)
   thrd_t threads[THREAD_COUNT];
   ThreadData threadData[THREAD_COUNT];
 
-  int rowsPerThread = n / THREAD_COUNT;
+  register int rowsPerThread = n / THREAD_COUNT;
   for (int i = 0; i < THREAD_COUNT; ++i)
   {
     threadData[i].startRow = i * rowsPerThread;
