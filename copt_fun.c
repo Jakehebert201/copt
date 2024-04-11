@@ -31,8 +31,8 @@
  ******************************************************************************/
 
 /******************************************************************************
- * Name:          <your name here>
- * Collaboration: <collaborator names here--one per line>
+ * Name:        Jacob Hebert 
+ * Collaboration: Some help from GPT and Stack Overflow 
  ******************************************************************************/
 
 int check(int x, int y)
@@ -80,7 +80,7 @@ void matrix_initialize_opt(struct fn_args *args)
   // 10. Map mat 1 and mat 2 to register : 5.7x
   // 11 map loop control to register
   // 12. Changed i_offset from i*n to i+=n: 4.7x to 5.7x
-  // 13. Moved to AVX2 SIMD instructions -> 15.3x speedup
+  // 13. Moved to AVX2 SIMD instructions and vectors -> 15.3x speedup
 
   register int i, j, n;
   register int *mat1, *mat2;
@@ -91,7 +91,6 @@ void matrix_initialize_opt(struct fn_args *args)
   mat2 = args->mem2;
 
   // Prepare vectors for initialization
-  // Note: This assumes that 'n' is divisible by 8, as each _mm256_set1_epi32 call fills 8 integers.
   for (i = 0; i < n; i++)
   {
     __m256i vec_i = _mm256_set1_epi32(i);         // Vector with all elements set to 'i'
@@ -260,6 +259,7 @@ unsigned long long factorial_opt_helper(unsigned long long n)
   // 3. Using a global array and using n as an indexer for it makes this significantly faster! (well, not as much for me :/ ) (14.6x)
 
   // this is gonna be ugly but I think it'd be funny
+  if(n > 20||n < 0){ return 0;}
   return factorialTable[n];
 
   // original switch statement code
