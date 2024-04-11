@@ -348,7 +348,65 @@ void matrix_multiply_unopt(struct fn_args *args)
   }
 }
 
+// Transposes input matrix in order to make the below algorithm even faster
+void transpose_matrix(int *src, int *dst, int n)
+{
+  for (int i = 0; i < n; ++i)
+  {
+    for (int j = 0; j < n; ++j)
+    {
+      dst[j * n + i] = src[i * n + j];
+    }
+  }
+}
+
 #define TILE_SIZE 32
+#define THREAD_COUNT 2
+typedef struct
+{
+  int startRow;
+  int endRow;
+  int n;
+  int *mat1;
+  int *transposed_mat2;
+  int *res;
+} ThreadData;
+
+void mat_thread_func(void *arg)
+{
+  ThreadData *data = (ThreadData *)arg;
+  int startRow = data->startRow;
+  int endRow = data->endRow;
+  int n = data->n;
+  int *mat1 = data->mat1;
+  int *transposed_mat2 = data->transposed_mat2;
+  int *res = data->res;
+
+  for (int i = startRow; i < endRow; i += TILE_SIZE)
+  {
+    for (int j = 0; j < n; j += TILE_SIZE)
+    {
+      for (int k = 0; k < n; k += TILE_SIZE)
+      {
+        for (int ii = i; ii < i + TILE_SIZE && ii < endRow; ++ii)
+        {
+          for (int jj = j; jj < j + TILE_SIZE; jj += 8)
+          {
+            __m256i temp = _mm256_loadu_si256((__m256i *)&res[ii * n + jj]);
+            for (int kk = k; kk < k + TILE_SIZE; ++kk)
+            {
+              __m256i mat1_vec = _mm256_set1_epi32(mat1[ii * n + kk]);
+              __m256i mat2_vec = _mm256_loadu_si256((__m256i *)&transposed_mat2[jj * n + kk]);
+              temp = _mm256_add_epi32(temp, _mm256_mullo_epi32(mat1_vec, mat2_vec));
+            }
+            _mm256_storeu_si256((__m256i *)&res[ii * n + jj], temp);
+          }
+        }
+      }
+    }
+  }
+}
+
 void matrix_multiply_opt(struct fn_args *args)
 {
   // 1. Added n offset variable to reduce redundant calculations (1.2x speedup)
@@ -356,6 +414,9 @@ void matrix_multiply_opt(struct fn_args *args)
   // 3. Added joffset variable to reduce redundant calculations (1.8x speedup) Need to get below 3033 ms, currently at 7783 ms
   // 4. Tiled matrix - 2.4x at 32
   // 5. Moved to AVX2 256-bit vectorization - 4.3x
+  // 6. Transposed mat2 to make the multiplication horizontal by horizontal - 4.3...?
+  // 7. Moved some loop control variables to registers - 4.5
+  // 8. Multithreading - variable performance
 
   /* Pre tiled code
 
@@ -416,13 +477,13 @@ void matrix_multiply_opt(struct fn_args *args)
      }
    }
    */
+
+  /* AVX2 mult
   int n = args->n;
   int *mat1 = args->mem1;
   int *mat2 = args->mem2;
   int *res = args->mem3;
 
-  // Temporary array for accumulating the sums, ensuring it is large enough
-  // for any TILE_SIZE. Adjust according to your maximum expected TILE_SIZE.
   int temp_sum[TILE_SIZE][TILE_SIZE] = {0};
 
   for (int i = 0; i < n; i += TILE_SIZE)
@@ -435,17 +496,96 @@ void matrix_multiply_opt(struct fn_args *args)
         {
           for (int jj = j; jj < j + TILE_SIZE; jj += 8)
           {
-            __m256i temp = _mm256_loadu_si256((__m256i *)&res[ii * n + jj]); // Load existing result
+            __m256i temp = _mm256_loadu_si256((__m256i *)&res[ii * n + jj]);
             for (int kk = k; kk < k + TILE_SIZE; ++kk)
             {
-              __m256i mat1_vec = _mm256_set1_epi32(mat1[ii * n + kk]);               // Load mat1 element broadcasted
-              __m256i mat2_vec = _mm256_loadu_si256((__m256i *)&mat2[kk * n + jj]);  // Load 8 elements from mat2
-              temp = _mm256_add_epi32(temp, _mm256_mullo_epi32(mat1_vec, mat2_vec)); // Multiply-add
+              __m256i mat1_vec = _mm256_set1_epi32(mat1[ii * n + kk]);
+              __m256i mat2_vec = _mm256_loadu_si256((__m256i *)&mat2[kk * n + jj]);
+              temp = _mm256_add_epi32(temp, _mm256_mullo_epi32(mat1_vec, mat2_vec));
             }
-            _mm256_storeu_si256((__m256i *)&res[ii * n + jj], temp); // Store the accumulated result
+            _mm256_storeu_si256((__m256i *)&res[ii * n + jj], temp);
           }
         }
       }
     }
   }
+  */
+
+  /*loop control to registers
+  register int n = args->n;
+  register int *mat1 = args->mem1;
+  int *transposed_mat2 = (int *)malloc(n * n * sizeof(int)); // Allocate memory for the transposed matrix
+  int *res = args->mem3;
+
+  // Transpose mat2
+  transpose_matrix(args->mem2, transposed_mat2, n);
+
+  for (int i = 0; i < n; i += TILE_SIZE)
+  {
+    for (int j = 0; j < n; j += TILE_SIZE)
+    {
+      for (int k = 0; k < n; k += TILE_SIZE)
+      {
+        for (int ii = i; ii < i + TILE_SIZE; ++ii)
+        {
+          for (register int jj = j; jj < j + TILE_SIZE; jj += 8)
+          {
+            __m256i temp = _mm256_loadu_si256((__m256i *)&res[ii * n + jj]);
+            for (register int kk = k; kk < k + TILE_SIZE; ++kk)
+            {
+              __m256i mat1_vec = _mm256_set1_epi32(mat1[ii * n + kk]);
+              // Load horizontally from transposed_mat2
+              __m256i mat2_vec = _mm256_loadu_si256((__m256i *)&transposed_mat2[jj * n + kk]); // Adjusted for transposed access
+              temp = _mm256_add_epi32(temp, _mm256_mullo_epi32(mat1_vec, mat2_vec));
+            }
+            _mm256_storeu_si256((__m256i *)&res[ii * n + jj], temp);
+          }
+        }
+      }
+    }
+  }
+
+  free(transposed_mat2); // Don't forget to free the allocated memory
+}
+*/
+  int n = args->n;
+  int *mat1 = args->mem1;
+  int *transposed_mat2 = (int *)malloc(n * n * sizeof(int));
+  int *res = args->mem3;
+
+  transpose_matrix(args->mem2, transposed_mat2, n);
+
+  thrd_t threads[THREAD_COUNT];
+  ThreadData threadData[THREAD_COUNT];
+
+  int rowsPerThread = n / THREAD_COUNT;
+  for (int i = 0; i < THREAD_COUNT; ++i)
+  {
+    threadData[i].startRow = i * rowsPerThread;
+    threadData[i].endRow = (i + 1) * rowsPerThread;
+    threadData[i].n = n;
+    threadData[i].mat1 = mat1;
+    threadData[i].transposed_mat2 = transposed_mat2;
+    threadData[i].res = res;
+
+    if (i == THREAD_COUNT - 1)
+    {
+      // Make sure the last thread covers any remaining rows
+      threadData[i].endRow = n;
+    }
+
+    if (thrd_create(&threads[i], (thrd_start_t)mat_thread_func, &threadData[i]) != thrd_success)
+    {
+      // Handle thread creation failure
+      exit(1);
+    }
+  }
+
+  // Join threads
+  for (int i = 0; i < THREAD_COUNT; ++i)
+  {
+    thrd_join(threads[i], NULL);
+  }
+
+  free(transposed_mat2);
 }
