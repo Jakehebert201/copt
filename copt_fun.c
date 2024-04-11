@@ -348,16 +348,16 @@ void matrix_multiply_unopt(struct fn_args *args)
   }
 }
 
+#define TILE_SIZE 32
 void matrix_multiply_opt(struct fn_args *args)
 {
   // 1. Added n offset variable to reduce redundant calculations (1.2x speedup)
   // 2. Moved vars to registers (1.5x speedup)
   // 3. Added joffset variable to reduce redundant calculations (1.8x speedup) Need to get below 3033 ms, currently at 7783 ms
-  // 4. Loop Tiling -- yeah that did less than nothing, did not implement!
-  // 5. Multithreading! -- Also a terrible idea, did not improve performance!
-  // 6.
+  // 4. Tiled matrix - 2.4x at 32
+  // 5. Moved to AVX2 256-bit vectorization - 4.3x
 
-  /* Pre Multithreaded code */
+  /* Pre tiled code
 
   register int i, j, k, n, noffset, joffset;
   register int *mat1, *mat2, *res;
@@ -380,6 +380,71 @@ void matrix_multiply_opt(struct fn_args *args)
       for (k = 0; k < n; k++)
       {
         res[joffset] += mat1[noffset + k] * mat2[k * n + j];
+      }
+    }
+  }
+  */
+
+  /* Tiled mult
+   register int i, j, k, ii, jj, kk, n;
+   register int *mat1, *mat2, *res;
+
+   n = args->n;
+   mat1 = args->mem1;
+   mat2 = args->mem2;
+   res = args->mem3;
+
+   for (i = 0; i < n; i += TILE_SIZE)
+   {
+     for (j = 0; j < n; j += TILE_SIZE)
+     {
+       for (k = 0; k < n; k += TILE_SIZE)
+       {
+         for (ii = i; ii < i + TILE_SIZE; ++ii)
+         {
+           for (jj = j; jj < j + TILE_SIZE; ++jj)
+           {
+             register int temp = res[ii * n + jj];
+             for (kk = k; kk < k + TILE_SIZE; ++kk)
+             {
+               temp += mat1[ii * n + kk] * mat2[kk * n + jj];
+             }
+             res[ii * n + jj] = temp;
+           }
+         }
+       }
+     }
+   }
+   */
+  int n = args->n;
+  int *mat1 = args->mem1;
+  int *mat2 = args->mem2;
+  int *res = args->mem3;
+
+  // Temporary array for accumulating the sums, ensuring it is large enough
+  // for any TILE_SIZE. Adjust according to your maximum expected TILE_SIZE.
+  int temp_sum[TILE_SIZE][TILE_SIZE] = {0};
+
+  for (int i = 0; i < n; i += TILE_SIZE)
+  {
+    for (int j = 0; j < n; j += TILE_SIZE)
+    {
+      for (int k = 0; k < n; k += TILE_SIZE)
+      {
+        for (int ii = i; ii < i + TILE_SIZE; ++ii)
+        {
+          for (int jj = j; jj < j + TILE_SIZE; jj += 8)
+          {
+            __m256i temp = _mm256_loadu_si256((__m256i *)&res[ii * n + jj]); // Load existing result
+            for (int kk = k; kk < k + TILE_SIZE; ++kk)
+            {
+              __m256i mat1_vec = _mm256_set1_epi32(mat1[ii * n + kk]);               // Load mat1 element broadcasted
+              __m256i mat2_vec = _mm256_loadu_si256((__m256i *)&mat2[kk * n + jj]);  // Load 8 elements from mat2
+              temp = _mm256_add_epi32(temp, _mm256_mullo_epi32(mat1_vec, mat2_vec)); // Multiply-add
+            }
+            _mm256_storeu_si256((__m256i *)&res[ii * n + jj], temp); // Store the accumulated result
+          }
+        }
       }
     }
   }
